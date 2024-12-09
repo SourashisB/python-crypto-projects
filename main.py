@@ -2,8 +2,10 @@ import hashlib
 import time
 import json
 import os
+from tkinter import Tk, Label, Button, Entry, StringVar, messagebox, Toplevel
 
 
+# Transaction Class
 class Transaction:
     def __init__(self, sender, recipient, amount):
         self.sender = sender
@@ -22,6 +24,7 @@ class Transaction:
         return Transaction(data["sender"], data["recipient"], data["amount"])
 
 
+# Block Class
 class Block:
     def __init__(self, index, previous_hash, transactions, timestamp=None, nonce=0):
         self.index = index
@@ -68,6 +71,7 @@ class Block:
         return block
 
 
+# Blockchain Class
 class Blockchain:
     def __init__(self, difficulty=4, reward=50, file_name="blockchain.json"):
         self.chain = []
@@ -76,7 +80,6 @@ class Blockchain:
         self.reward = reward
         self.file_name = file_name
 
-        # Load blockchain from file if it exists
         if os.path.exists(self.file_name):
             self.load_blockchain()
         else:
@@ -97,7 +100,6 @@ class Blockchain:
 
     def mine_block(self, miner_address):
         if not self.pending_transactions:
-            print("No transactions to mine.")
             return None
 
         last_block = self.get_last_block()
@@ -107,20 +109,13 @@ class Blockchain:
             transactions=self.pending_transactions,
         )
 
-        print("Mining block...")
         while not new_block.hash().startswith("0" * self.difficulty):
             new_block.nonce += 1
 
         new_block.hash_value = new_block.hash()
 
-        # Reward the miner
-        self.pending_transactions = [
-            Transaction("System", miner_address, self.reward)
-        ]
-
+        self.pending_transactions = [Transaction("System", miner_address, self.reward)]
         self.chain.append(new_block)
-        print(f"Block mined! Hash: {new_block.hash_value}")
-
         self.save_blockchain()
         return new_block
 
@@ -129,32 +124,15 @@ class Blockchain:
             current_block = self.chain[i]
             previous_block = self.chain[i - 1]
 
-            # Check hash integrity
             if current_block.hash() != current_block.hash_value:
-                print(f"Invalid hash at block {current_block.index}")
                 return False
 
-            # Check hash linkage
             if current_block.previous_hash != previous_block.hash_value:
-                print(f"Invalid chain linkage at block {current_block.index}")
                 return False
 
         return True
 
-    def display_chain(self):
-        for block in self.chain:
-            print(f"Block {block.index}")
-            print(f"Previous Hash: {block.previous_hash}")
-            print(f"Transactions: {json.dumps([tx.to_dict() for tx in block.transactions], indent=4)}")
-            print(f"Timestamp: {block.timestamp}")
-            print(f"Nonce: {block.nonce}")
-            print(f"Hash: {block.hash_value}")
-            print("-" * 50)
-
     def save_blockchain(self):
-        """
-        Save the blockchain to a file in JSON format.
-        """
         with open(self.file_name, "w") as file:
             data = {
                 "chain": [block.to_dict() for block in self.chain],
@@ -163,9 +141,6 @@ class Blockchain:
             json.dump(data, file, indent=4)
 
     def load_blockchain(self):
-        """
-        Load the blockchain from a file in JSON format.
-        """
         with open(self.file_name, "r") as file:
             data = json.load(file)
             self.chain = [Block.from_dict(block) for block in data["chain"]]
@@ -174,46 +149,87 @@ class Blockchain:
             ]
 
 
-# CLI Interface
-def cli():
-    print("Welcome to CryptoCoin CLI!")
-    blockchain = Blockchain()
+# GUI Wallet
+class BlockchainWalletGUI:
+    def __init__(self, master):
+        self.master = master
+        self.master.title("Blockchain Wallet")
+        self.blockchain = Blockchain()
 
-    while True:
-        print("\nOptions:")
-        print("1. Add a transaction")
-        print("2. Mine a block")
-        print("3. Display blockchain")
-        print("4. Validate blockchain")
-        print("5. Exit")
+        # Sender Address
+        Label(master, text="Sender Address:").grid(row=0, column=0, padx=10, pady=5)
+        self.sender = StringVar()
+        Entry(master, textvariable=self.sender).grid(row=0, column=1, padx=10, pady=5)
 
-        choice = input("Enter your choice: ")
+        # Recipient Address
+        Label(master, text="Recipient Address:").grid(row=1, column=0, padx=10, pady=5)
+        self.recipient = StringVar()
+        Entry(master, textvariable=self.recipient).grid(row=1, column=1, padx=10, pady=5)
 
-        if choice == "1":
-            sender = input("Enter sender address: ")
-            recipient = input("Enter recipient address: ")
-            amount = float(input("Enter amount: "))
-            blockchain.add_transaction(sender, recipient, amount)
-            print("Transaction added!")
+        # Amount
+        Label(master, text="Amount:").grid(row=2, column=0, padx=10, pady=5)
+        self.amount = StringVar()
+        Entry(master, textvariable=self.amount).grid(row=2, column=1, padx=10, pady=5)
 
-        elif choice == "2":
-            miner_address = input("Enter miner address: ")
-            blockchain.mine_block(miner_address)
+        # Buttons
+        Button(master, text="Add Transaction", command=self.add_transaction).grid(
+            row=3, column=0, padx=10, pady=5
+        )
+        Button(master, text="Mine Block", command=self.mine_block).grid(
+            row=3, column=1, padx=10, pady=5
+        )
+        Button(master, text="Display Blockchain", command=self.display_chain).grid(
+            row=4, column=0, padx=10, pady=5
+        )
+        Button(master, text="Validate Blockchain", command=self.validate_chain).grid(
+            row=4, column=1, padx=10, pady=5
+        )
 
-        elif choice == "3":
-            blockchain.display_chain()
+    def add_transaction(self):
+        sender = self.sender.get()
+        recipient = self.recipient.get()
+        try:
+            amount = float(self.amount.get())
+            self.blockchain.add_transaction(sender, recipient, amount)
+            messagebox.showinfo("Success", "Transaction added!")
+        except ValueError:
+            messagebox.showerror("Error", "Invalid amount.")
 
-        elif choice == "4":
-            is_valid = blockchain.is_valid_chain()
-            print("Blockchain is valid!" if is_valid else "Blockchain is invalid!")
+    def mine_block(self):
+        miner_address = self.sender.get()
+        if not miner_address.strip():
+            messagebox.showerror("Error", "Miner address is required.")
+            return
 
-        elif choice == "5":
-            print("Exiting CLI...")
-            break
-
+        block = self.blockchain.mine_block(miner_address)
+        if block:
+            messagebox.showinfo("Success", f"Block mined successfully!\nHash: {block.hash_value}")
         else:
-            print("Invalid choice. Please try again.")
+            messagebox.showwarning("Warning", "No transactions to mine.")
+
+    def display_chain(self):
+        new_window = Toplevel(self.master)
+        new_window.title("Blockchain")
+        text = ""
+        for block in self.blockchain.chain:
+            text += f"Block {block.index}:\n"
+            text += f"Previous Hash: {block.previous_hash}\n"
+            text += f"Transactions: {json.dumps([tx.to_dict() for tx in block.transactions], indent=4)}\n"
+            text += f"Timestamp: {block.timestamp}\n"
+            text += f"Nonce: {block.nonce}\n"
+            text += f"Hash: {block.hash_value}\n"
+            text += "-" * 50 + "\n"
+
+        Label(new_window, text=text, justify="left", anchor="w").pack(padx=10, pady=10)
+
+    def validate_chain(self):
+        is_valid = self.blockchain.is_valid_chain()
+        message = "Blockchain is valid!" if is_valid else "Blockchain is invalid!"
+        messagebox.showinfo("Validation Result", message)
 
 
+# Main Application
 if __name__ == "__main__":
-    cli()
+    root = Tk()
+    app = BlockchainWalletGUI(root)
+    root.mainloop()
