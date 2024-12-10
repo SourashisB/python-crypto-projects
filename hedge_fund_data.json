@@ -1,0 +1,39 @@
+{
+    "prices": {
+        "AAPL": [
+            150,
+            155
+        ],
+        "GOOGL": [
+            2800
+        ]
+    },
+    "transactions": {
+        "AAPL": [
+            {
+                "type": "buy",
+                "quantity": 10,
+                "price": 150,
+                "date": "2024-12-09 21:08:31"
+            },
+            {
+                "type": "sell",
+                "quantity": 5,
+                "price": 155,
+                "date": "2024-12-09 21:08:31"
+            }
+        ],
+        "GOOGL": [
+            {
+                "type": "buy",
+                "quantity": 2,
+                "price": 2800,
+                "date": "2024-12-09 21:08:31"
+            }
+        ]
+    },
+    "pnl": {
+        "AAPL": -725,
+        "GOOGL": -5600
+    }
+}
