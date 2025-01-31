@@ -5,7 +5,7 @@ import pandas as pd
 import plotly.express as px
 
 # Configuration
-STOCK_SYMBOLS = ['AAPL', 'GOOGL', 'MSFT', 'AMZN', 'TSLA']
+STOCK_SYMBOLS = ['PLTR', 'GOOGL', 'MSFT', 'AMZN', 'TSLA']
 HISTORICAL_PERIOD = '1y'
 MOVING_AVERAGES = [50, 200]
 
