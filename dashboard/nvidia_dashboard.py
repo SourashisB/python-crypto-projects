@@ -88,7 +88,7 @@ def update_charts(start_date, end_date):
         title="Trading Volume",
         labels={"Volume": "Volume", "Date": "Date"},
         template="plotly_white",
-        color_discrete_sequence=["#00CC96"]
+        color_discrete_sequence=["#FF0000"]
     )
 
     return price_fig, candlestick_fig, volume_fig
