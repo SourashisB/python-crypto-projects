@@ -1,0 +1,18 @@
+{
+    "chain": [
+        {
+            "index": 0,
+            "timestamp": 1742477727.834948,
+            "data": {
+                "action": "genesis",
+                "message": "Genesis Block of Warehouse Blockchain"
+            },
+            "previous_hash": "0",
+            "nonce": 142,
+            "hash": "00c5d8d909a905e888df5a7c7bd29cd5ea4fa60084632128b2e32b8b022b719d"
+        }
+    ],
+    "inventory": {},
+    "pending_deliveries": {},
+    "delivery_id_counter": 1
+}
