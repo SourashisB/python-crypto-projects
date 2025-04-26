@@ -15,7 +15,7 @@ df = df.sort_values("Date")
 # Calculate a 20-day moving average for trend visualization
 df["20-day MA"] = df["Close"].rolling(window=20).mean()
 
-# Calculate RSI (Relative Strength Index) for additional analysis
+# Calculate RSI (Relative Strength Index) for additional analysiss
 def calculate_rsi(data, window=14):
     delta = data["Close"].diff()
     gain = (delta.where(delta > 0, 0)).rolling(window=window).mean()
