@@ -1,17 +1,19 @@
 import pandas as pd
 import numpy as np
-from sklearn.model_selection import train_test_split, RandomizedSearchCV, StratifiedKFold
-from sklearn.ensemble import RandomForestClassifier, GradientBoostingClassifier, AdaBoostClassifier
-from sklearn.tree import DecisionTreeClassifier
-from sklearn.metrics import accuracy_score, confusion_matrix, classification_report, roc_auc_score
 import matplotlib.pyplot as plt
-from sklearn.preprocessing import StandardScaler, OneHotEncoder
+import seaborn as sns
+from sklearn.model_selection import train_test_split, cross_val_score, RepeatedStratifiedKFold
+from sklearn.preprocessing import StandardScaler, OneHotEncoder, LabelEncoder
 from sklearn.compose import ColumnTransformer
 from sklearn.pipeline import Pipeline
 from sklearn.impute import SimpleImputer
-import seaborn as sns
-from imblearn.over_sampling import SMOTE
-import xgboost as xgb
+from sklearn.feature_selection import SelectKBest, f_classif, RFE
+from sklearn.linear_model import LogisticRegression
+from sklearn.ensemble import RandomForestClassifier, ExtraTreesClassifier, VotingClassifier, GradientBoostingClassifier
+from sklearn.svm import LinearSVC
+from sklearn.neural_network import MLPClassifier
+from sklearn.metrics import accuracy_score, classification_report, confusion_matrix, roc_auc_score
+from sklearn.base import BaseEstimator, TransformerMixin
 import warnings
 warnings.filterwarnings('ignore')
 
@@ -19,29 +21,132 @@ warnings.filterwarnings('ignore')
 file_path = 'diabetes_dataset.csv'
 data = pd.read_csv(file_path)
 
-# Quick overview of the data
-print("Dataset Overview:")
-print(data.shape)
+# Display initial information
+print("Dataset Information:")
+print(f"Shape: {data.shape}")
+print("\nFirst few rows:")
 print(data.head())
+print("\nData types:")
+print(data.dtypes)
 
 # Check class distribution
 print("\nTarget Distribution:")
 print(data['Diabetes_Diagnosis'].value_counts(normalize=True))
+
+# Data quality check
+print("\nMissing values per column:")
+print(data.isnull().sum())
 
 # Define the target variable and features
 target_column = 'Diabetes_Diagnosis'
 X = data.drop(target_column, axis=1)
 y = data[target_column]
 
+# Convert target to numeric if it's not already
+if y.dtype == 'object':
+    print("Converting target to numeric...")
+    label_encoder = LabelEncoder()
+    y = label_encoder.fit_transform(y)
+    print(f"Target classes: {label_encoder.classes_}")
+
 # Identify categorical and numerical columns
-categorical_columns = X.select_dtypes(include=['object', 'category']).columns.tolist()
 numerical_columns = X.select_dtypes(include=['int64', 'float64']).columns.tolist()
+categorical_columns = X.select_dtypes(include=['object', 'category']).columns.tolist()
 
-print("\nCategorical Columns:", categorical_columns)
-print("Numerical Columns:", numerical_columns)
+print("\nNumerical features:", numerical_columns)
+print("Categorical features:", categorical_columns)
 
-# Define preprocessing pipeline
-numeric_transformer = Pipeline(steps=[
+# Exploratory Data Analysis
+print("\nPerforming Exploratory Data Analysis...")
+
+# Check for class imbalance
+plt.figure(figsize=(8, 6))
+sns.countplot(x=target_column, data=data)
+plt.title('Class Distribution')
+plt.show()
+
+# Distribution of numerical features
+plt.figure(figsize=(15, 10))
+for i, col in enumerate(numerical_columns[:min(9, len(numerical_columns))]):
+    plt.subplot(3, 3, i+1)
+    sns.histplot(data=data, x=col, hue=target_column, kde=True)
+    plt.title(f'Distribution of {col}')
+plt.tight_layout()
+plt.show()
+
+# Correlation matrix
+plt.figure(figsize=(12, 10))
+numeric_data = data[numerical_columns + [target_column]].copy()
+# Ensure target is numeric for correlation
+if numeric_data[target_column].dtype == 'object':
+    numeric_data[target_column] = label_encoder.transform(numeric_data[target_column])
+correlation = numeric_data.corr()
+mask = np.triu(correlation)
+sns.heatmap(correlation, annot=True, fmt='.2f', cmap='coolwarm', mask=mask)
+plt.title('Feature Correlation Matrix')
+plt.show()
+
+# Create custom transformer for feature engineering
+class FeatureEngineer(BaseEstimator, TransformerMixin):
+    def __init__(self, numerical_cols):
+        self.numerical_cols = numerical_cols
+    
+    def fit(self, X, y=None):
+        return self
+    
+    def transform(self, X):
+        X_new = X.copy()
+        
+        # Only perform operations on numerical columns
+        for col in self.numerical_cols:
+            if col in X_new.columns:
+                # Create log features for skewed numerical features
+                skewness = X_new[col].skew()
+                if abs(skewness) > 1:
+                    # Ensure no negative values for log transform
+                    if X_new[col].min() <= 0:
+                        X_new[f'{col}_log'] = np.log1p(X_new[col] - X_new[col].min() + 1)
+                    else:
+                        X_new[f'{col}_log'] = np.log1p(X_new[col])
+        
+        # Create interaction terms only for numerical features
+        numerical_present = [col for col in self.numerical_cols if col in X_new.columns]
+        
+        if 'BMI' in numerical_present and 'Age' in numerical_present:
+            X_new['BMI_x_Age'] = X_new['BMI'] * X_new['Age']
+        
+        if 'Glucose' in numerical_present and 'BMI' in numerical_present:
+            X_new['Glucose_x_BMI'] = X_new['Glucose'] * X_new['BMI']
+        
+        if 'Glucose' in numerical_present and 'Age' in numerical_present:
+            X_new['Glucose_x_Age'] = X_new['Glucose'] * X_new['Age']
+        
+        # Create ratio features for numerical values
+        if 'BMI' in numerical_present and 'Age' in numerical_present:
+            X_new['BMI_to_Age'] = X_new['BMI'] / (X_new['Age'] + 1)  # +1 to avoid division by zero
+        
+        # Polynomial features for key numerical variables
+        if 'Glucose' in numerical_present:
+            X_new['Glucose_squared'] = X_new['Glucose'] ** 2
+        
+        if 'BMI' in numerical_present:
+            X_new['BMI_squared'] = X_new['BMI'] ** 2
+        
+        return X_new
+
+# Split the data
+X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.25, random_state=42, stratify=y)
+
+# Apply feature engineering for EDA
+feature_engineer = FeatureEngineer(numerical_cols=numerical_columns)
+X_train_engineered = feature_engineer.transform(X_train)
+
+# Get updated numerical columns list after feature engineering
+engineered_numerical_cols = X_train_engineered.select_dtypes(include=['int64', 'float64']).columns.tolist()
+engineered_categorical_cols = X_train_engineered.select_dtypes(include=['object', 'category']).columns.tolist()
+
+# Define the preprocessing pipeline
+numerical_transformer = Pipeline(steps=[
     ('imputer', SimpleImputer(strategy='median')),
     ('scaler', StandardScaler())
 ])
@@ -51,242 +156,233 @@ categorical_transformer = Pipeline(steps=[
     ('onehot', OneHotEncoder(handle_unknown='ignore', sparse_output=False))
 ])
 
+# Create the preprocessing pipeline that will be used after feature engineering
 preprocessor = ColumnTransformer(
     transformers=[
-        ('num', numeric_transformer, numerical_columns),
-        ('cat', categorical_transformer, categorical_columns)
+        ('num', numerical_transformer, engineered_numerical_cols),
+        ('cat', categorical_transformer, engineered_categorical_cols)
     ]
 )
 
-# Split the dataset
-X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42, stratify=y)
+# Define a complete pipeline function that includes feature engineering
+def create_pipeline(estimator, feature_selection='none', smote=True):
+    from imblearn.pipeline import Pipeline as ImbPipeline
+    from imblearn.over_sampling import SMOTE
+    
+    # Steps for the pipeline
+    steps = []
+    
+    # Feature engineering
+    steps.append(('feature_engineering', FeatureEngineer(numerical_cols=numerical_columns)))
+    
+    # Preprocessing
+    steps.append(('preprocessor', preprocessor))
+    
+    # Feature selection
+    if feature_selection == 'kbest':
+        steps.append(('feature_selection', SelectKBest(f_classif, k=min(20, len(engineered_numerical_cols)))))
+    elif feature_selection == 'rfe':
+        steps.append(('feature_selection', RFE(estimator=LogisticRegression(max_iter=1000), 
+                                               n_features_to_select=min(15, len(engineered_numerical_cols)))))
+    
+    # Add SMOTE if requested
+    if smote:
+        steps.append(('smote', SMOTE(random_state=42)))
+    
+    # Add the estimator
+    steps.append(('estimator', estimator))
+    
+    # Return as imbalanced-learn Pipeline if using SMOTE, otherwise as sklearn Pipeline
+    if smote:
+        return ImbPipeline(steps)
+    else:
+        return Pipeline(steps)
 
-# Preprocess the data
-X_train_preprocessed = preprocessor.fit_transform(X_train)
-X_test_preprocessed = preprocessor.transform(X_test)
-
-# Check class balance and apply SMOTE if needed
-class_counts = np.bincount(y_train)
-print(f"\nClass distribution before SMOTE: {class_counts}")
-
-if min(class_counts) / max(class_counts) < 0.75:  # If imbalanced
-    print("Applying SMOTE to balance classes...")
-    smote = SMOTE(random_state=42)
-    X_train_preprocessed, y_train = smote.fit_resample(X_train_preprocessed, y_train)
-    print(f"Class distribution after SMOTE: {np.bincount(y_train)}")
-
-# Focus on efficient and effective models for diabetes prediction
-models = {
-    'Random Forest': RandomForestClassifier(random_state=42, n_jobs=-1),
-    'Gradient Boosting': GradientBoostingClassifier(random_state=42),
-    'XGBoost': xgb.XGBClassifier(random_state=42, use_label_encoder=False, eval_metric='logloss', n_jobs=-1),
-    'AdaBoost': AdaBoostClassifier(DecisionTreeClassifier(max_depth=3), random_state=42)
+# Define estimators with regularization to reduce overfitting
+estimators = {
+    'LogisticRegression': LogisticRegression(C=0.1, penalty='l2', solver='liblinear', max_iter=1000, 
+                                             class_weight='balanced', random_state=42),
+    'RandomForest': RandomForestClassifier(n_estimators=100, max_depth=5, min_samples_leaf=5, 
+                                           class_weight='balanced', random_state=42),
+    'GradientBoosting': GradientBoostingClassifier(n_estimators=100, max_depth=3, 
+                                                   learning_rate=0.1, subsample=0.8, random_state=42),
+    'ExtraTrees': ExtraTreesClassifier(n_estimators=100, max_depth=5, min_samples_leaf=5, 
+                                       class_weight='balanced', random_state=42),
+    'LinearSVC': LinearSVC(C=0.1, penalty='l2', dual=False, class_weight='balanced', 
+                           max_iter=2000, random_state=42)
 }
 
-best_auc = 0
-best_model_name = None
-best_model = None
-results = {}
+# Define feature selection methods and SMOTE options
+feature_selections = ['none', 'kbest', 'rfe']
+smote_options = [True, False]
 
-# Train and evaluate each model
-for name, model in models.items():
-    print(f"\nTraining {name}...")
-    
-    # Train with early stopping for XGBoost
-    if name == 'XGBoost':
-        X_train_valid, X_valid, y_train_valid, y_valid = train_test_split(
-            X_train_preprocessed, y_train, test_size=0.2, random_state=42, stratify=y_train
-        )
-        model.fit(
-            X_train_valid, y_train_valid,
-            eval_set=[(X_valid, y_valid)],
-            early_stopping_rounds=10,
-            verbose=False
-        )
-    else:
-        model.fit(X_train_preprocessed, y_train)
-    
-    # Make predictions
-    y_train_pred = model.predict(X_train_preprocessed)
-    y_test_pred = model.predict(X_test_preprocessed)
-    
-    # For ROC AUC
-    if hasattr(model, "predict_proba"):
-        y_test_proba = model.predict_proba(X_test_preprocessed)[:, 1]
-        auc = roc_auc_score(y_test, y_test_proba)
-    else:
-        y_test_proba = model.predict(X_test_preprocessed)  # Fallback
-        auc = roc_auc_score(y_test, y_test_proba)
-    
-    train_accuracy = accuracy_score(y_train, y_train_pred)
-    test_accuracy = accuracy_score(y_test, y_test_pred)
-    
-    print(f"{name} Results:")
-    print(f"Training Accuracy: {train_accuracy:.4f}")
-    print(f"Testing Accuracy: {test_accuracy:.4f}")
-    print(f"ROC AUC Score: {auc:.4f}")
-    
-    results[name] = {
-        'model': model,
-        'train_accuracy': train_accuracy,
-        'test_accuracy': test_accuracy,
-        'auc': auc
-    }
-    
-    # Track the best model based on AUC
-    if auc > best_auc:
-        best_auc = auc
-        best_model_name = name
-        best_model = model
+# Use cross-validation to select the best approach
+best_score = 0
+best_pipeline = None
+best_config = None
 
-print(f"\nBest Model: {best_model_name} with AUC = {best_auc:.4f}")
+print("\nTesting model configurations with cross-validation...")
 
-# Define focused hyperparameter tuning for the best model - using RandomizedSearchCV for efficiency
-if best_model_name == 'Random Forest':
-    param_distributions = {
-        'n_estimators': [100, 200, 300],
-        'max_depth': [None, 10, 20, 30],
-        'min_samples_split': [2, 5, 10],
-        'min_samples_leaf': [1, 2, 4],
-        'max_features': ['sqrt', 'log2']
-    }
-    
-elif best_model_name == 'Gradient Boosting':
-    param_distributions = {
-        'n_estimators': [100, 200, 300],
-        'learning_rate': [0.01, 0.1, 0.2],
-        'max_depth': [3, 5, 7],
-        'min_samples_split': [2, 5, 10],
-        'subsample': [0.8, 0.9, 1.0]
-    }
-    
-elif best_model_name == 'XGBoost':
-    param_distributions = {
-        'n_estimators': [100, 200, 300],
-        'learning_rate': [0.01, 0.1, 0.2],
-        'max_depth': [3, 5, 7],
-        'min_child_weight': [1, 3, 5],
-        'subsample': [0.8, 0.9, 1.0],
-        'colsample_bytree': [0.8, 0.9, 1.0]
-    }
-    
-else:  # AdaBoost
-    param_distributions = {
-        'n_estimators': [50, 100, 200],
-        'learning_rate': [0.01, 0.1, 1.0],
-        'base_estimator__max_depth': [1, 2, 3]
-    }
+# Prepare cross-validation strategy
+cv = RepeatedStratifiedKFold(n_splits=5, n_repeats=2, random_state=42)
 
-# Use RandomizedSearchCV instead of GridSearchCV for efficiency
-cv = StratifiedKFold(n_splits=5, shuffle=True, random_state=42)
-random_search = RandomizedSearchCV(
-    best_model, param_distributions, 
-    n_iter=20,  # Try 20 parameter combinations
-    cv=cv, 
-    scoring='roc_auc', 
-    n_jobs=-1, 
-    verbose=1,
-    random_state=42
-)
+# Test different configurations
+results = []
 
-print(f"\nPerforming hyperparameter tuning for {best_model_name}...")
-random_search.fit(X_train_preprocessed, y_train)
+# Count total iterations
+total_configs = len(estimators) * len(feature_selections) * len(smote_options)
+print(f"Testing {total_configs} different configurations...")
 
-print("\nBest Parameters:", random_search.best_params_)
-print("Best Cross-Validation Score:", random_search.best_score_)
+# Test different configurations
+for estimator_name, estimator in estimators.items():
+    for feature_selection in feature_selections:
+        for smote in smote_options:
+            config = f"{estimator_name} | Selection: {feature_selection} | SMOTE: {smote}"
+            print(f"Testing: {config}")
+            
+            # Create pipeline
+            pipeline = create_pipeline(
+                estimator=estimator,
+                feature_selection=feature_selection,
+                smote=smote
+            )
+            
+            # Evaluate with cross-validation
+            try:
+                scores = cross_val_score(pipeline, X_train, y_train, cv=cv, scoring='roc_auc', n_jobs=-1)
+                mean_score = np.mean(scores)
+                std_score = np.std(scores)
+                
+                print(f"  ROC AUC: {mean_score:.4f} (±{std_score:.4f})")
+                
+                # Store result
+                results.append({
+                    'estimator': estimator_name,
+                    'feature_selection': feature_selection,
+                    'smote': smote,
+                    'mean_score': mean_score,
+                    'std_score': std_score
+                })
+                
+                # Update best if better
+                if mean_score > best_score:
+                    best_score = mean_score
+                    best_config = config
+                    best_pipeline = pipeline
+            except Exception as e:
+                print(f"  Error: {str(e)}")
 
-# Evaluate the tuned model
-tuned_model = random_search.best_estimator_
-y_train_pred = tuned_model.predict(X_train_preprocessed)
-y_test_pred = tuned_model.predict(X_test_preprocessed)
+# Display best config
+print(f"\nBest configuration: {best_config}")
+print(f"Best cross-validation ROC AUC: {best_score:.4f}")
 
-if hasattr(tuned_model, "predict_proba"):
-    y_test_proba = tuned_model.predict_proba(X_test_preprocessed)[:, 1]
-else:
-    y_test_proba = tuned_model.predict(X_test_preprocessed)
+# Display all results in a DataFrame
+results_df = pd.DataFrame(results)
+print("\nAll configurations sorted by performance:")
+print(results_df.sort_values('mean_score', ascending=False).head(10))
 
-train_accuracy = accuracy_score(y_train, y_train_pred)
-test_accuracy = accuracy_score(y_test, y_test_pred)
-auc = roc_auc_score(y_test, y_test_proba)
+# Fit best pipeline to training data
+print("\nFitting best model to training data...")
+best_pipeline.fit(X_train, y_train)
 
-print("\nTuned Model Evaluation:")
-print(f"Training Accuracy: {train_accuracy:.4f}")
-print(f"Testing Accuracy: {test_accuracy:.4f}")
-print(f"ROC AUC Score: {auc:.4f}")
+# Evaluate on test data
+y_pred = best_pipeline.predict(X_test)
+y_pred_proba = best_pipeline.predict_proba(X_test)[:, 1] if hasattr(best_pipeline, 'predict_proba') else None
 
-print("\nConfusion Matrix (Testing Data):")
-cm = confusion_matrix(y_test, y_test_pred)
-print(cm)
+# Calculate metrics
+test_accuracy = accuracy_score(y_test, y_pred)
+test_report = classification_report(y_test, y_pred)
+test_confusion = confusion_matrix(y_test, y_pred)
+test_auc = roc_auc_score(y_test, y_pred_proba) if y_pred_proba is not None else None
 
-# Calculate and display classification metrics
-test_report = classification_report(y_test, y_test_pred)
-print("\nClassification Report (Testing Data):")
+print("\nTest Results:")
+print(f"Accuracy: {test_accuracy:.4f}")
+if test_auc is not None:
+    print(f"ROC AUC: {test_auc:.4f}")
+print("\nClassification Report:")
 print(test_report)
+print("\nConfusion Matrix:")
+print(test_confusion)
 
-# Create confusion matrix heatmap
+# Create confusion matrix visualization
 plt.figure(figsize=(8, 6))
-sns.heatmap(cm, annot=True, fmt='d', cmap='Blues')
+sns.heatmap(test_confusion, annot=True, fmt='d', cmap='Blues')
 plt.xlabel('Predicted')
 plt.ylabel('Actual')
 plt.title('Confusion Matrix')
 plt.show()
 
-# Analyze feature importance for tree-based models
-if hasattr(tuned_model, 'feature_importances_'):
-    # Get feature names
-    feature_names = []
-    
-    # Add numerical feature names
-    for col in numerical_columns:
-        feature_names.append(col)
-    
-    # Add one-hot encoded feature names
-    if categorical_columns:
-        encoder = preprocessor.named_transformers_['cat'].named_steps['onehot']
-        encoded_features = encoder.get_feature_names_out(categorical_columns)
-        feature_names.extend(encoded_features)
-    
-    # Ensure feature names match the number of importances
-    importances = tuned_model.feature_importances_
-    if len(feature_names) > len(importances):
-        feature_names = feature_names[:len(importances)]
-    
-    # Create DataFrame for visualization
-    importance_df = pd.DataFrame({
-        'Feature': feature_names,
-        'Importance': importances
-    }).sort_values('Importance', ascending=False)
-    
-    # Plot top features
-    plt.figure(figsize=(10, 6))
-    sns.barplot(x='Importance', y='Feature', data=importance_df.head(15))
-    plt.title(f'Top 15 Feature Importances - {best_model_name}')
-    plt.tight_layout()
-    plt.show()
-    
-    print("\nTop 10 Most Important Features:")
-    print(importance_df.head(10))
+# Create ensemble from top models
+print("\nCreating an ensemble model from top performing configurations...")
 
-# Create the final pipeline
-final_pipeline = Pipeline([
-    ('preprocessor', preprocessor),
-    ('classifier', tuned_model)
-])
+# Get top 3 configurations
+top_configs = results_df.sort_values('mean_score', ascending=False).head(3)
 
-# Fit the pipeline on the original training data
-final_pipeline.fit(X_train, y_train)
+# Create and fit an ensemble
+ensemble_members = []
+for idx, config in top_configs.iterrows():
+    estimator_name = config['estimator']
+    feature_selection = config['feature_selection']
+    smote = config['smote']
+    
+    # Create pipeline
+    pipeline = create_pipeline(
+        estimator=estimators[estimator_name],
+        feature_selection=feature_selection,
+        smote=smote
+    )
+    
+    # Add to ensemble
+    ensemble_members.append((f"model_{idx}", pipeline))
 
-# Final evaluation
-pipeline_pred = final_pipeline.predict(X_test)
-pipeline_accuracy = accuracy_score(y_test, pipeline_pred)
-print(f"\nFinal Pipeline Accuracy: {pipeline_accuracy:.4f}")
+# Create voting classifier
+ensemble_estimators = [(f"model_{i}", member[1]) for i, member in enumerate(ensemble_members)]
+voting_classifier = VotingClassifier(
+    estimators=ensemble_estimators,
+    voting='soft'  # Use probability-based voting
+)
+
+# Fit voting classifier
+print("Fitting ensemble model...")
+voting_classifier.fit(X_train, y_train)
+
+# Evaluate ensemble
+y_ensemble_pred = voting_classifier.predict(X_test)
+y_ensemble_proba = voting_classifier.predict_proba(X_test)[:, 1]
+
+# Calculate metrics
+ensemble_accuracy = accuracy_score(y_test, y_ensemble_pred)
+ensemble_report = classification_report(y_test, y_ensemble_pred)
+ensemble_confusion = confusion_matrix(y_test, y_ensemble_pred)
+ensemble_auc = roc_auc_score(y_test, y_ensemble_proba)
+
+print("\nEnsemble Test Results:")
+print(f"Accuracy: {ensemble_accuracy:.4f}")
+print(f"ROC AUC: {ensemble_auc:.4f}")
+print("\nClassification Report:")
+print(ensemble_report)
+print("\nConfusion Matrix:")
+print(ensemble_confusion)
+
+# Final model: use the best between the best individual model and the ensemble
+final_model = best_pipeline
+final_accuracy = test_accuracy
+
+if ensemble_accuracy > test_accuracy:
+    final_model = voting_classifier
+    final_accuracy = ensemble_accuracy
+    print(f"\nFinal model selected: Ensemble")
+else:
+    print(f"\nFinal model selected: Best Individual Model ({best_config})")
+
+print(f"Final test accuracy: {final_accuracy:.4f}")
 
 # Save the model
 import joblib
-joblib.dump(final_pipeline, 'diabetes_prediction_model.pkl')
-print("\nFinal model saved as 'diabetes_prediction_model.pkl'")
+joblib.dump(final_model, 'improved_diabetes_prediction_model.pkl')
+print("\nFinal model saved as 'improved_diabetes_prediction_model.pkl'")
 
-# Prediction function
+# Function to make predictions on new data
 def predict_diabetes(patient_data):
     """
     Make diabetes predictions on new patient data.
@@ -297,15 +393,21 @@ def predict_diabetes(patient_data):
     Returns:
     prediction, probability
     """
-    model = joblib.load('diabetes_prediction_model.pkl')
+    model = joblib.load('improved_diabetes_prediction_model.pkl')
     
     # For single samples, reshape if needed
     if len(patient_data.shape) == 1 or (isinstance(patient_data, pd.DataFrame) and len(patient_data) == 1):
         prediction = model.predict(patient_data)[0]
-        probability = model.predict_proba(patient_data)[0][1]
+        if hasattr(model, 'predict_proba'):
+            probability = model.predict_proba(patient_data)[0][1]
+        else:
+            probability = None
     else:
         prediction = model.predict(patient_data)
-        probability = model.predict_proba(patient_data)[:, 1]
+        if hasattr(model, 'predict_proba'):
+            probability = model.predict_proba(patient_data)[:, 1]
+        else:
+            probability = None
         
     return prediction, probability
 
