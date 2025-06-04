@@ -7,7 +7,27 @@
             "timestamp": 1733472098.3610427,
             "nonce": 0,
             "hash_value": "6cd6ab76eec0c338914d2ca3083f42d6199d11d0ed266cfad19462e6ed115ed0"
+        },
+        {
+            "index": 1,
+            "previous_hash": "6cd6ab76eec0c338914d2ca3083f42d6199d11d0ed266cfad19462e6ed115ed0",
+            "transactions": [
+                {
+                    "sender": "1",
+                    "recipient": "2",
+                    "amount": 3.0
+                }
+            ],
+            "timestamp": 1740802829.8730526,
+            "nonce": 24294,
+            "hash_value": "0000a06b166fa17ad52e808bbc1bf429e59529b67f33a2a77f198606c78631d0"
         }
     ],
-    "pending_transactions": []
+    "pending_transactions": [
+        {
+            "sender": "System",
+            "recipient": "1",
+            "amount": 50
+        }
+    ]
 }
