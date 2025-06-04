@@ -8,7 +8,6 @@ from sklearn.preprocessing import StandardScaler, OneHotEncoder
 from sklearn.compose import ColumnTransformer
 from sklearn.pipeline import Pipeline
 
-# Load the dataset (replace 'your_dataset.csv' with the actual file name)
 file_path = 'diabetes_dataset.csv'  # Update with the actual file path
 data = pd.read_csv(file_path)
 
