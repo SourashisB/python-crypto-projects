@@ -1,0 +1,11 @@
+[
+  {
+    "trade_id": "4fa46302-f52d-4a77-8df6-541040b7633c",
+    "buyer_id": "18dbef1d-27b4-42c0-a830-50560aa3c36e",
+    "seller_id": "605c4ddf-f6af-446c-a0dd-b2dfece1e8f6",
+    "stock": "AMZN",
+    "quantity": 6,
+    "price": 98,
+    "timestamp": "2025-06-19T17:02:06.500921"
+  }
+]
